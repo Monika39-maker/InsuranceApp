@@ -1,11 +1,11 @@
-
+import UserLogin from "./components/userLogin"
 
 function App() {
   
 
   return (
     <>
-     <h1>This is my InsuranceAI app....YEYYY...!</h1>
+     <UserLogin />
     </>
   )
 }
