@@ -50,16 +50,55 @@ const Chatbot = () => {
       content: text
     };
 
+    const outgoingMessages = [...messages, userMessage].map(m => ({ role: m.role, content: m.content }));
+
     setMessages(prev => [...prev, userMessage]);
     setDraft('');
     setSending(true);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 450));
+      const backendBaseUrl = (import.meta as any)?.env?.VITE_BACKEND_URL || 'http://localhost:3000';
+      const url = `${String(backendBaseUrl).replace(/\/$/, '')}/api/chat`;
+
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ message: text, messages: outgoingMessages })
+      });
+
+      const payload = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        const details = payload?.error || payload?.details || 'Request failed';
+        throw new Error(typeof details === 'string' ? details : 'Request failed');
+      }
+
+      const upstream = payload?.response;
+      const assistantText =
+        typeof upstream === 'string'
+          ? upstream
+          : typeof upstream?.reply === 'string'
+            ? upstream.reply
+            : typeof upstream?.content === 'string'
+              ? upstream.content
+              : typeof upstream?.message === 'string'
+                ? upstream.message
+                : typeof upstream?.choices?.[0]?.message?.content === 'string'
+                  ? upstream.choices[0].message.content
+                  : JSON.stringify(upstream ?? payload);
+
       const assistantMessage: ChatMessage = {
         id: `a_${Date.now()}`,
         role: 'assistant',
-        content: "I’m a placeholder UI response. Wire me to your backend and I’ll answer for real."
+        content: assistantText
+      };
+      setMessages(prev => [...prev, assistantMessage]);
+    } catch (err) {
+      const assistantMessage: ChatMessage = {
+        id: `a_${Date.now()}`,
+        role: 'assistant',
+        content: err instanceof Error ? err.message : 'Something went wrong'
       };
       setMessages(prev => [...prev, assistantMessage]);
     } finally {
@@ -170,7 +209,8 @@ const Chatbot = () => {
                         padding: '10px 12px',
                         borderRadius: 2,
                         backgroundColor: 'grey.100'
-                      }}
+                      }
+                    }
                     >
                       <CircularProgress size={16} />
                       <Typography variant="body2" color="text.secondary">
