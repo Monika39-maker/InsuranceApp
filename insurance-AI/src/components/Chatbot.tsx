@@ -58,40 +58,52 @@ const Chatbot = () => {
 
     try {
       const backendBaseUrl = (import.meta as any)?.env?.VITE_BACKEND_URL || 'http://localhost:3000';
-      const url = `${String(backendBaseUrl).replace(/\/$/, '')}/api/chat`;
+      const url = `${String(backendBaseUrl).replace(/\/$/, '')}/rag`;
 
       const resp = await fetch(url, {
         method: 'POST',
         headers: {
           'content-type': 'application/json'
         },
-        body: JSON.stringify({ message: text, messages: outgoingMessages })
+        body: JSON.stringify({ prompt: text, messages: outgoingMessages })
       });
 
       const payload = await resp.json().catch(() => null);
       if (!resp.ok) {
-        const details = payload?.error || payload?.details || 'Request failed';
+        const details =
+          (typeof payload === 'object' && payload !== null ? (payload as any).error || (payload as any).details : null) ||
+          (typeof payload === 'string' ? payload : null) ||
+          'Request failed';
         throw new Error(typeof details === 'string' ? details : 'Request failed');
       }
 
-      const upstream = payload?.response;
       const assistantText =
-        typeof upstream === 'string'
-          ? upstream
-          : typeof upstream?.reply === 'string'
-            ? upstream.reply
-            : typeof upstream?.content === 'string'
-              ? upstream.content
-              : typeof upstream?.message === 'string'
-                ? upstream.message
-                : typeof upstream?.choices?.[0]?.message?.content === 'string'
-                  ? upstream.choices[0].message.content
-                  : JSON.stringify(upstream ?? payload);
+        typeof payload === 'object' && payload !== null && typeof (payload as any).answer === 'string'
+          ? (payload as any).answer
+          : typeof payload === 'string'
+            ? payload
+            : JSON.stringify(payload);
+
+      const decodedAssistantText = (() => {
+        if (assistantText.startsWith('"') && assistantText.endsWith('"')) {
+          try {
+            const parsed = JSON.parse(assistantText);
+            if (typeof parsed === 'string') return parsed;
+          } catch {
+            return assistantText;
+          }
+        }
+        return assistantText;
+      })();
+
+      const normalizedAssistantText = decodedAssistantText
+        .replace(/\\r\\n/g, '\n')
+        .replace(/\\n/g, '\n');
 
       const assistantMessage: ChatMessage = {
         id: `a_${Date.now()}`,
         role: 'assistant',
-        content: assistantText
+        content: normalizedAssistantText
       };
       setMessages(prev => [...prev, assistantMessage]);
     } catch (err) {
@@ -209,8 +221,7 @@ const Chatbot = () => {
                         padding: '10px 12px',
                         borderRadius: 2,
                         backgroundColor: 'grey.100'
-                      }
-                    }
+                      }}
                     >
                       <CircularProgress size={16} />
                       <Typography variant="body2" color="text.secondary">
