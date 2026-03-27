@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
@@ -34,25 +34,20 @@ const Chatbot = () => {
   const [sending, setSending] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
 
-  const canSend = useMemo(() => draft.trim().length > 0 && !sending, [draft, sending]);
-
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length, sending]);
+  }, [messages, sending]);
 
-  const handleSend = async () => {
+  const canSend = draft.trim().length > 0 && !sending;
+
+  const sendMessage = async () => {
     const text = draft.trim();
     if (!text || sending) return;
 
-    const userMessage: ChatMessage = {
-      id: `u_${Date.now()}`,
-      role: 'user',
-      content: text
-    };
+    const userMessage: ChatMessage = { id: `u_${Date.now()}`, role: 'user', content: text };
+    const nextMessages = [...messages, userMessage];
 
-    const outgoingMessages = [...messages, userMessage].map(m => ({ role: m.role, content: m.content }));
-
-    setMessages(prev => [...prev, userMessage]);
+    setMessages(nextMessages);
     setDraft('');
     setSending(true);
 
@@ -62,10 +57,11 @@ const Chatbot = () => {
 
       const resp = await fetch(url, {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json'
-        },
-        body: JSON.stringify({ prompt: text, messages: outgoingMessages })
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          prompt: text,
+          messages: nextMessages.map(m => ({ role: m.role, content: m.content }))
+        })
       });
 
       const payload = await resp.json().catch(() => null);
@@ -77,34 +73,19 @@ const Chatbot = () => {
         throw new Error(typeof details === 'string' ? details : 'Request failed');
       }
 
-      const assistantText =
-        typeof payload === 'object' && payload !== null && typeof (payload as any).answer === 'string'
-          ? (payload as any).answer
-          : typeof payload === 'string'
-            ? payload
-            : JSON.stringify(payload);
+      let answerText = '';
+      if (payload && typeof payload === 'object' && typeof (payload as any).answer === 'string') {
+        answerText = (payload as any).answer;
+      } else if (typeof payload === 'string') {
+        answerText = payload;
+      } else {
+        answerText = JSON.stringify(payload);
+      }
 
-      const decodedAssistantText = (() => {
-        if (assistantText.startsWith('"') && assistantText.endsWith('"')) {
-          try {
-            const parsed = JSON.parse(assistantText);
-            if (typeof parsed === 'string') return parsed;
-          } catch {
-            return assistantText;
-          }
-        }
-        return assistantText;
-      })();
+      answerText = answerText.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n');
 
-      const normalizedAssistantText = decodedAssistantText
-        .replace(/\\r\\n/g, '\n')
-        .replace(/\\n/g, '\n');
+      const assistantMessage: ChatMessage = { id: `a_${Date.now()}`, role: 'assistant', content: answerText };
 
-      const assistantMessage: ChatMessage = {
-        id: `a_${Date.now()}`,
-        role: 'assistant',
-        content: normalizedAssistantText
-      };
       setMessages(prev => [...prev, assistantMessage]);
     } catch (err) {
       const assistantMessage: ChatMessage = {
@@ -245,11 +226,11 @@ const Chatbot = () => {
                 onKeyDown={e => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    void handleSend();
+                    void sendMessage();
                   }
                 }}
               />
-              <IconButton aria-label="send" onClick={() => void handleSend()} disabled={!canSend}>
+              <IconButton aria-label="send" onClick={() => void sendMessage()} disabled={!canSend}>
                 <SendIcon />
               </IconButton>
             </Box>
